@@ -1,4 +1,4 @@
-# @version 0.2.12
+# @version 0.2.15
 """
 @title Yearn Token Vault
 @license GNU AGPLv3
@@ -35,18 +35,20 @@
     https://github.com/iearn-finance/yearn-vaults/blob/master/SPECIFICATION.md
 """
 
-API_VERSION: constant(String[28]) = "0.4.3"
+API_VERSION: constant(String[28]) = "0.5.1"
 
 from vyper.interfaces import ERC20
 
 implements: ERC20
 
+# TODO: define the calls for logic contract
+interface Logic:
+    def setup(): nonpayable
 
 interface DetailedERC20:
     def name() -> String[42]: view
     def symbol() -> String[20]: view
     def decimals() -> uint256: view
-
 
 interface Strategy:
     def want() -> address: view
@@ -73,7 +75,6 @@ event Approval:
     spender: indexed(address)
     value: uint256
 
-
 name: public(String[64])
 symbol: public(String[32])
 decimals: public(uint256)
@@ -87,6 +88,7 @@ governance: public(address)
 management: public(address)
 guardian: public(address)
 pendingGovernance: address
+logic: address
 
 struct StrategyParams:
     performanceFee: uint256  # Strategist's fee (basis points)
@@ -129,6 +131,8 @@ event UpdateGovernance:
 event NewPendingGovernance:
     governance: address # New pending governance
 
+event NewLogic:
+    logic: address # New logic contract
 
 event UpdateManagement:
     management: address # New active manager
@@ -280,7 +284,7 @@ def initialize(
     @param symbolOverride Specify a custom Vault symbol name. Leave empty for default choice.
     @param guardian The address authorized for guardian interactions. Defaults to caller.
     """
-    assert self.activation == 0  # dev: no devops199
+    assert self.activation == 0  # dev: no devops199 
     self.token = ERC20(token)
     if nameOverride == "":
         self.name = concat(DetailedERC20(token).symbol(), " yVault")
@@ -434,6 +438,23 @@ def setRewards(rewards: address):
     self.rewards = rewards
     log UpdateRewards(rewards)
 
+# sets Logic Contract. 
+@external
+def initializeLogic(logic: address):
+    """
+    @notice
+        Initialize logic contract once. Migration of logic is done elsewhere
+
+        Done this way to keep backwards compatible this vault with current registry interface.
+        Another approach is to have a factory for logic in initialize that we can call tied to each version of logic contracts.
+    @param governance The address requested to take over Vault governance.
+    """
+    assert msg.sender == self.governance
+    assert self.logic != ZERO_ADDRESS
+    log InitLogic(msg.sender)
+    # logic won't work until signal to from vault, vault is set beforehand in two step process
+    Logic(logic).setup()
+    self.logic = logic
 
 @external
 def setLockedProfitDegradation(degradation: uint256):
